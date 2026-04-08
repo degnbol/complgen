@@ -89,21 +89,40 @@ pub fn get_flags(line: &str) -> Vec<String> {
 }
 
 /// Get the value following a flag, e.g. `{a,b}`, `<file>`, `VAL`, `[N]`.
+/// Only matches structured value patterns, not description words.
 pub fn get_flag_val(line: &str, flag: &str) -> String {
     let Some(pos) = line.find(flag) else {
         return String::new();
     };
     let rest = &line[pos + flag.len()..];
 
-    // Option positional: --flag=val or --flag val
-    let re_pos = Regex::new(r"^[ =]([\w[:punct:]]+)").unwrap();
-    if let Some(caps) = re_pos.captures(rest) {
+    // =VALUE (attached with equals)
+    let re_eq = Regex::new(r"^=([\w[:punct:]]+)").unwrap();
+    if let Some(caps) = re_eq.captures(rest) {
         return caps[1].trim_end_matches([',', '|']).to_string();
     }
 
-    // Option optional: --flag[val]
+    // <value> (angle brackets)
+    let re_angle = Regex::new(r"^[ =]?(<[^>]+>)").unwrap();
+    if let Some(caps) = re_angle.captures(rest) {
+        return caps[1].to_string();
+    }
+
+    // {a,b} (braces with choices)
+    let re_brace = Regex::new(r"^[ =]?(\{[^}]+\})").unwrap();
+    if let Some(caps) = re_brace.captures(rest) {
+        return caps[1].to_string();
+    }
+
+    // [val] (optional in brackets, immediately after flag)
     let re_opt = Regex::new(r"^[ =]?(\[[\w[:punct:]]+\])").unwrap();
     if let Some(caps) = re_opt.captures(rest) {
+        return caps[1].to_string();
+    }
+
+    // ALLCAPS word after space (e.g. "--flag VALUE")
+    let re_upper = Regex::new(r"^ ([A-Z][A-Z0-9_-]+)").unwrap();
+    if let Some(caps) = re_upper.captures(rest) {
         return caps[1].to_string();
     }
 
@@ -145,11 +164,18 @@ pub fn get_options(lines: &[String]) -> Vec<Option_> {
     let mut options = Vec::new();
     let mut i = 0;
     while i < lines.len() {
-        // Skip USAGE paragraph
+        // Skip USAGE paragraph — only skip lines that look like usage syntax
+        // continuation (don't start with a flag-like pattern after trimming)
         if lines[i].to_lowercase().starts_with("usage:") {
-            while i < lines.len() && !lines[i].trim().is_empty() {
+            i += 1; // skip the "usage:" line itself
+            while i < lines.len() {
+                let trimmed = lines[i].trim();
+                if trimmed.is_empty() || trimmed.starts_with('-') || trimmed.starts_with('+') {
+                    break;
+                }
                 i += 1;
             }
+            continue;
         }
         if i >= lines.len() {
             break;
