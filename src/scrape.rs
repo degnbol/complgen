@@ -233,14 +233,35 @@ pub fn get_positionals(lines: &[String]) -> Vec<String> {
     positionals
 }
 
-/// Full scrape: run `cmd --help`, parse options/subcommands/positionals, recurse into subcommands.
+/// Parse help lines into options, subcommands, and positionals.
+fn parse_help(help_lines: &[String]) -> (Vec<Option_>, HashMap<String, String>, Vec<String>) {
+    let options = get_options(help_lines);
+    let subcmd_descs = get_subcmds(help_lines);
+    let positionals = get_positionals(help_lines);
+    (options, subcmd_descs, positionals)
+}
+
+/// Scrape from pre-read help text (e.g. piped stdin). No subcommand recursion.
+pub fn scrape_lines(help_lines: &[String]) -> (Vec<Option_>, HashMap<String, Subcmd>) {
+    let (options, mut subcmd_descs, positionals) = parse_help(help_lines);
+
+    for p in &positionals {
+        subcmd_descs.entry(p.clone()).or_default();
+    }
+
+    let subcmds: HashMap<String, Subcmd> = subcmd_descs
+        .into_iter()
+        .map(|(k, v)| (k, Subcmd::new(v)))
+        .collect();
+
+    (options, subcmds)
+}
+
+/// Scrape by running `cmd <help_flag>`, then recursively `cmd <subcmd> <help_flag>`.
 pub fn scrape_command(cmd: &str, help_flag: &str) -> (Vec<Option_>, HashMap<String, Subcmd>) {
     let help_lines = read_help(cmd, &[help_flag]);
-    let options = get_options(&help_lines);
-    let mut subcmd_descs = get_subcmds(&help_lines);
-    let positionals = get_positionals(&help_lines);
+    let (options, mut subcmd_descs, positionals) = parse_help(&help_lines);
 
-    // Positionals get added as "subcommands" with empty description (matches Julia behaviour)
     for p in &positionals {
         subcmd_descs.entry(p.clone()).or_default();
     }

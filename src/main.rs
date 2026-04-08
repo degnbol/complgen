@@ -1,5 +1,5 @@
 use std::ffi::OsStr;
-use std::io::{BufWriter, Read, Write};
+use std::io::{BufReader, BufRead, BufWriter, Read, Write};
 use std::path::Path;
 use std::process::exit;
 
@@ -55,14 +55,20 @@ struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Commands {
-    /// Scrape a command's --help output and generate a .usage grammar
+    /// Scrape a command's --help output and generate a .usage grammar.
+    /// By default, runs `command --help` and recurses into subcommands.
+    /// With --stdin, reads help text from stdin instead (no recursion).
     Scrape {
-        /// The command to scrape
+        /// The command name (used for grammar header and subcommand recursion)
         command: String,
 
-        /// Help flag to use (default: --help)
+        /// Help flag to use when running the command (default: --help)
         #[clap(long, default_value = "--help")]
         help_flag: String,
+
+        /// Read help text from stdin instead of running the command
+        #[clap(long)]
+        stdin: bool,
     },
 }
 
@@ -428,9 +434,18 @@ fn main() -> anyhow::Result<()> {
     if let Some(Commands::Scrape {
         command,
         help_flag,
+        stdin,
     }) = &args.command
     {
-        let (options, subcmds) = complgen::scrape::scrape_command(command, help_flag);
+        let (options, subcmds) = if *stdin {
+            let lines: Vec<String> = BufReader::new(std::io::stdin())
+                .lines()
+                .map(|l| l.unwrap_or_default())
+                .collect();
+            complgen::scrape::scrape_lines(&lines)
+        } else {
+            complgen::scrape::scrape_command(command, help_flag)
+        };
         let mut writer = BufWriter::new(std::io::stdout());
         complgen::scrape::generate_usage(&mut writer, command, &options, &subcmds)?;
         return Ok(());
