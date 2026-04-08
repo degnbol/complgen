@@ -115,6 +115,10 @@ The special nonterminal `<_>` matches any shell word and doesn't produce the "un
 compilation warning so it's a good choice to use for program arguments where there isn't enough structure to
 produce meaningful completions but matching should still continue at the next shell word.
 
+Note: empty nonterminal definitions (`<FOO> ::= ;`) cause a parse error. To accept free-form
+input, use `<_>`, leave the nonterminal undefined (produces a warning but compiles), or use
+a no-op shell escape (`<FOO@zsh> ::= {{{ true }}};`).
+
 ### Filename Completion
 
 There's a small set of predefined nonterminals that are handled specially by `complgen`:
@@ -186,6 +190,41 @@ cmd <USER>;
 ```
 
 complgen will pick the right definition of `<USER>` depending on what you're compiling the grammar to.
+
+### Accessing Completion Context in Shell Escapes
+
+The generated completion scripts execute `{{{ }}}` blocks inside the shell's completion
+function scope. This means shell-native completion variables are available via dynamic
+scoping:
+
+| Variable | bash | fish | zsh | Description |
+|----------|------|------|-----|-------------|
+| `$COMP_WORDS` / `$words` | `COMP_WORDS` | — | `words` | Full command line as an array |
+| `$COMP_CWORD` / `$CURRENT` | `COMP_CWORD` | — | `CURRENT` | Index of the word being completed |
+| `$PREFIX` | — | — | `PREFIX` | Partial word typed so far (zsh) |
+
+This enables context-dependent completions where the output of a shell escape depends on
+previously typed arguments. For example, completing HDF5 internal objects based on a file
+argument already on the command line:
+
+```
+h5dump [<OPTION>]... <PATH>;
+<OPTION> = (-d <DATASET> | --dataset=<DATASET>) "Print the specified dataset"
+         | (-g <GROUP> | --group=<GROUP>) "Print the specified group"
+         ;
+
+<DATASET@zsh> = {{{
+    local f
+    for f in ${words[@]}; do
+        [[ -f $f && $f = *.h5 ]] && { h5ls -r "$f" 2>/dev/null | cut -f1 -d' ' | sed 's,^/,,'; break }
+    done
+}}};
+<GROUP> = <DATASET>;
+```
+
+**Caveat**: The grammar has no mechanism to *name* or *capture* matched arguments. You
+must scan `$words` yourself, and the index of a positional argument depends on how many
+options preceded it. This works well for simple CLIs with predictable argument layouts.
 
 ### Completion Within Words
 
