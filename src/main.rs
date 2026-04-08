@@ -17,6 +17,9 @@ struct Cli {
     #[clap(long, help = "Show version and exit")]
     version: bool,
 
+    #[clap(subcommand)]
+    command: Option<Commands>,
+
     usage_file_path: Option<String>,
 
     #[clap(long, help = "Write bash completion script", name = "BASH_SCRIPT_PATH")]
@@ -48,6 +51,19 @@ struct Cli {
         name = "DFA_DOT_PATH"
     )]
     dfa: Option<String>,
+}
+
+#[derive(clap::Subcommand)]
+enum Commands {
+    /// Scrape a command's --help output and generate a .usage grammar
+    Scrape {
+        /// The command to scrape
+        command: String,
+
+        /// Help flag to use (default: --help)
+        #[clap(long, default_value = "--help")]
+        help_flag: String,
+    },
 }
 
 fn get_file_or_stdin(path: &str) -> anyhow::Result<Box<dyn Read>> {
@@ -406,6 +422,17 @@ fn main() -> anyhow::Result<()> {
 
     if args.version {
         println!("{}", env!("COMPLGEN_VERSION"));
+        return Ok(());
+    }
+
+    if let Some(Commands::Scrape {
+        command,
+        help_flag,
+    }) = &args.command
+    {
+        let (options, subcmds) = complgen::scrape::scrape_command(command, help_flag);
+        let mut writer = BufWriter::new(std::io::stdout());
+        complgen::scrape::generate_usage(&mut writer, command, &options, &subcmds)?;
         return Ok(());
     }
 
